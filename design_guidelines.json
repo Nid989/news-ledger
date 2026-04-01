@@ -1,0 +1,102 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast) - Vintage Editorial Variant",
+  "colors": {
+    "background": "#F4F1EA",
+    "surface": "#FFFFFF",
+    "primary_text": "#111111",
+    "secondary_text": "#4A4A4A",
+    "border": "#111111",
+    "accent": "#000000"
+  },
+  "typography": {
+    "headings": {
+      "family": "Playfair Display",
+      "weights": ["400", "700", "900"],
+      "h1_size": "text-6xl md:text-8xl",
+      "h2_size": "text-4xl md:text-5xl",
+      "h3_size": "text-2xl",
+      "h4_size": "text-xl",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "family": "Merriweather",
+      "weights": ["300", "400", "700"],
+      "base_size": "text-base"
+    },
+    "labels": {
+      "family": "Oswald",
+      "transform": "uppercase tracking-widest text-xs"
+    }
+  },
+  "layout": {
+    "page_container": "max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8",
+    "grid_system": {
+      "desktop": "grid grid-cols-12 gap-6",
+      "tablet": "grid grid-cols-8 gap-4",
+      "mobile": "grid grid-cols-1 gap-4"
+    },
+    "sections": {
+      "header": "text-center py-6 border-b-4 border-t-8 border-[#111111] mb-8",
+      "left_sidebar": "col-span-12 md:col-span-3 lg:col-span-2 flex flex-col gap-8 pr-6 md:border-r border-[#111111]/30",
+      "main_content": "col-span-12 md:col-span-5 lg:col-span-7 flex flex-col gap-8",
+      "right_sidebar": "col-span-12 md:col-span-4 lg:col-span-3 pl-6 md:border-l border-[#111111]/30 flex flex-col gap-6",
+      "bottom_section": "col-span-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-8 border-t-2 border-[#111111]/50 mt-8"
+    }
+  },
+  "components": {
+    "navigation_sidebar": {
+      "style": "flex flex-col",
+      "item": "py-2 border-b border-[#111111]/20 font-serif text-lg hover:italic cursor-pointer transition-all"
+    },
+    "featured_article": {
+      "style": "flex flex-col gap-4 pb-8 border-b border-[#111111]/30",
+      "image": "w-full aspect-video object-cover grayscale contrast-125 sepia-[.2]",
+      "headline": "font-serif text-5xl lg:text-6xl font-black leading-tight",
+      "excerpt": "font-serif text-lg leading-relaxed text-[#4A4A4A]"
+    },
+    "article_grid": {
+      "style": "grid grid-cols-1 md:grid-cols-2 gap-6"
+    },
+    "sidebar_article": {
+      "style": "flex gap-4 items-start pb-4 border-b border-[#111111]/20",
+      "image": "w-20 h-20 object-cover grayscale contrast-125 shrink-0",
+      "title": "font-serif text-lg font-bold leading-snug"
+    },
+    "bottom_card": {
+      "style": "flex flex-col gap-3",
+      "image": "w-full aspect-[4/3] object-cover grayscale contrast-125",
+      "title": "font-serif text-xl font-bold leading-tight"
+    }
+  },
+  "images": {
+    "featured_main": "https://images.unsplash.com/photo-1703244551357-233a550c11f5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
+    "article_grid": [
+      "https://images.unsplash.com/photo-1580196923348-cffc38b93d84?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1759405185537-6972d439a261?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwdmludGFnZSUyMG5ld3N8ZW58MHx8fHwxNzc1MDgyMTgyfDA&ixlib=rb-4.1.0&q=85"
+    ],
+    "sidebar_thumbnails": [
+      "https://images.unsplash.com/photo-1758405392922-569359b88a9b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHw0fHxjbGFzc2ljJTIwYmxhY2slMjBhbmQlMjB3aGl0ZSUyMHNwb3J0c3xlbnwwfHx8fDE3NzUwODIxOTR8MA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1622835276155-2681286a8321?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwdmludGFnZSUyMG5ld3N8ZW58MHx8fHwxNzc1MDgyMTgyfDA&ixlib=rb-4.1.0&q=85",
+      "https://images.unsplash.com/photo-1713429901232-55af72e11af8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxjbGFzc2ljJTIwYmxhY2slMjBhbmQlMjB3aGl0ZSUyMHNwb3J0c3xlbnwwfHx8fDE3NzUwODIxOTR8MA&ixlib=rb-4.1.0&q=85"
+    ],
+    "bottom_cards": [
+      "https://images.pexels.com/photos/16461387/pexels-photo-16461387.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "https://images.unsplash.com/photo-1703244549157-6cb7386abc68?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwzfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
+      "https://images.pexels.com/photos/15935275/pexels-photo-15935275.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "https://images.unsplash.com/photo-1628564120851-b76dfd932d2f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHw0fHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Build a classic, newspaper-style dashboard with a strict off-white/black palette (Archetype 4 Vintage variant).",
+    "Use 'Playfair Display' for headlines and 'Merriweather' for body. Import these from Google Fonts in your CSS/HTML.",
+    "Implement a 12-column grid layout on desktop: Left sidebar (2 cols), Main content (7 cols), Right sidebar (3 cols).",
+    "The header must be massive, centered 'NEWS LEDGER' text, bounded by thick top and bottom border lines to mimic a newspaper masthead.",
+    "Left Sidebar must include Category Navigation (U.S., World, Local, Business, Technology, Entertainment, Sports, Science, Health) and a Spotlight section.",
+    "Right Sidebar must be a list of Featured Articles with small square thumbnails.",
+    "The Bottom Section should be a 4-column grid of article cards stretching full width below the main 3-column area.",
+    "Every section and column should be visibly separated using dark borders (1px solid #111111 or similar) to recreate the newspaper grid look. Use divide-x, divide-y, or explicit border-r/border-b.",
+    "Apply 'grayscale contrast-125 sepia-[.2]' to all images in Tailwind to give them a vintage newsprint look.",
+    "No modern UI components like rounded corners, heavy drop shadows, or gradient backgrounds. Use sharp corners and solid black lines."
+  ]
+}
