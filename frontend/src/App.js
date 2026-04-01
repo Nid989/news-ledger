@@ -85,7 +85,7 @@ function App() {
                   key={category}
                   onClick={() => setSelectedCategory(category)}
                   className={`category-nav-item text-left ${selectedCategory === category ? 'active' : ''}`}
-                  data-testid={`category-${category.toLowerCase().replace('.', '').replace(' ', '-')}`}
+                  data-testid={`category-${category.toLowerCase().replace(/\./g, '').replace(/\s+/g, '-')}`}
                 >
                   {category}
                 </button>
