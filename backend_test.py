@@ -1,6 +1,7 @@
 import requests
 import sys
-from datetime import datetime
+from datetime import datetime, date
+import uuid
 
 class NewsLedgerAPITester:
     def __init__(self, base_url="https://news-hub-reader.preview.emergentagent.com"):
@@ -10,7 +11,7 @@ class NewsLedgerAPITester:
         self.tests_passed = 0
         self.failed_tests = []
 
-    def run_test(self, name, method, endpoint, expected_status, expected_fields=None):
+    def run_test(self, name, method, endpoint, expected_status, data=None, expected_fields=None):
         """Run a single API test"""
         url = f"{self.api_url}/{endpoint}"
         headers = {'Content-Type': 'application/json'}
@@ -23,7 +24,7 @@ class NewsLedgerAPITester:
             if method == 'GET':
                 response = requests.get(url, headers=headers, timeout=10)
             elif method == 'POST':
-                response = requests.post(url, json={}, headers=headers, timeout=10)
+                response = requests.post(url, json=data, headers=headers, timeout=10)
 
             print(f"   Status Code: {response.status_code}")
             
@@ -35,29 +36,29 @@ class NewsLedgerAPITester:
                 # Check response structure if expected_fields provided
                 if expected_fields:
                     try:
-                        data = response.json()
+                        response_data = response.json()
                         if isinstance(expected_fields, list):
                             # Check if response is a list
-                            if isinstance(data, list) and len(data) > 0:
+                            if isinstance(response_data, list) and len(response_data) > 0:
                                 for field in expected_fields:
-                                    if field not in data[0]:
+                                    if field not in response_data[0]:
                                         print(f"⚠️  Warning: Missing field '{field}' in response")
-                            elif isinstance(data, dict):
+                            elif isinstance(response_data, dict):
                                 for field in expected_fields:
-                                    if field not in data:
+                                    if field not in response_data:
                                         print(f"⚠️  Warning: Missing field '{field}' in response")
                         elif isinstance(expected_fields, dict):
                             # Check specific structure
                             for key, expected_type in expected_fields.items():
-                                if key in data:
-                                    if expected_type == "list" and not isinstance(data[key], list):
+                                if key in response_data:
+                                    if expected_type == "list" and not isinstance(response_data[key], list):
                                         print(f"⚠️  Warning: Field '{key}' should be a list")
-                                    elif expected_type == "string" and not isinstance(data[key], str):
+                                    elif expected_type == "string" and not isinstance(response_data[key], str):
                                         print(f"⚠️  Warning: Field '{key}' should be a string")
                                 else:
                                     print(f"⚠️  Warning: Missing field '{key}' in response")
                         
-                        print(f"   Response preview: {str(data)[:200]}...")
+                        print(f"   Response preview: {str(response_data)[:200]}...")
                     except Exception as e:
                         print(f"⚠️  Warning: Could not parse JSON response: {e}")
                 
@@ -100,13 +101,13 @@ class NewsLedgerAPITester:
             return False, {}
 
     def test_categories(self):
-        """Test categories endpoint"""
+        """Test GET /api/categories returns 9 categories"""
         success, response = self.run_test(
             "Get Categories",
             "GET",
             "categories",
             200,
-            {"categories": "list"}
+            expected_fields={"categories": "list"}
         )
         
         if success and "categories" in response:
@@ -126,96 +127,205 @@ class NewsLedgerAPITester:
                 
         return success
 
-    def test_featured_article(self):
-        """Test featured article endpoint"""
+    def test_digests_list(self):
+        """Test GET /api/digests - list digests"""
         success, response = self.run_test(
-            "Get Featured Article",
+            "List Digests",
             "GET",
-            "articles/featured",
+            "digests",
             200,
-            ["id", "title", "excerpt", "content", "category", "author", "image_url", "published_at", "is_featured"]
-        )
-        
-        if success and "is_featured" in response:
-            if response["is_featured"]:
-                print(f"✅ Featured article correctly marked as featured")
-            else:
-                print(f"⚠️  Warning: Featured article not marked as featured")
-                
-        return success
-
-    def test_spotlight_article(self):
-        """Test spotlight article endpoint"""
-        success, response = self.run_test(
-            "Get Spotlight Article",
-            "GET",
-            "articles/spotlight",
-            200,
-            ["id", "title", "excerpt", "content", "category", "author", "image_url", "published_at", "is_spotlight"]
-        )
-        
-        if success and "is_spotlight" in response:
-            if response["is_spotlight"]:
-                print(f"✅ Spotlight article correctly marked as spotlight")
-            else:
-                print(f"⚠️  Warning: Spotlight article not marked as spotlight")
-                
-        return success
-
-    def test_sidebar_articles(self):
-        """Test sidebar articles endpoint"""
-        success, response = self.run_test(
-            "Get Sidebar Articles",
-            "GET",
-            "articles/sidebar",
-            200,
-            ["id", "title", "excerpt", "content", "category", "author", "image_url", "published_at"]
+            expected_fields=["id", "edition_name", "digest_date", "status", "article_count"]
         )
         
         if success and isinstance(response, list):
-            print(f"✅ Sidebar articles returned as list with {len(response)} articles")
-            if len(response) >= 3:
-                print(f"✅ Sufficient articles for sidebar display")
+            print(f"✅ Digests returned as list with {len(response)} digests")
+            if len(response) > 0:
+                print(f"✅ Found digests in database")
+                # Store first digest ID for later tests
+                self.first_digest_id = response[0].get("id")
             else:
-                print(f"⚠️  Warning: Only {len(response)} sidebar articles, may need more for display")
+                print(f"⚠️  Warning: No digests found in database")
                 
         return success
 
-    def test_bottom_articles(self):
-        """Test bottom articles endpoint"""
+    def test_digest_by_date(self):
+        """Test GET /api/digests/date/{date} - get digest by date (2026-01-29)"""
+        test_date = "2026-01-29"
         success, response = self.run_test(
-            "Get Bottom Articles",
+            f"Get Digest by Date ({test_date})",
             "GET",
-            "articles/bottom",
+            f"digests/date/{test_date}",
             200,
-            ["id", "title", "excerpt", "content", "category", "author", "image_url", "published_at"]
+            expected_fields=["id", "edition_name", "digest_date", "articles"]
         )
         
-        if success and isinstance(response, list):
-            print(f"✅ Bottom articles returned as list with {len(response)} articles")
-            if len(response) >= 4:
-                print(f"✅ Sufficient articles for bottom grid display")
+        if success:
+            if "articles" in response and isinstance(response["articles"], list):
+                print(f"✅ Digest contains {len(response['articles'])} articles")
+                # Store digest ID for later tests
+                self.test_digest_id = response.get("id")
             else:
-                print(f"⚠️  Warning: Only {len(response)} bottom articles, may need more for grid")
+                print(f"⚠️  Warning: Digest missing articles array")
                 
         return success
 
-    def test_opinion_articles(self):
-        """Test opinion articles endpoint"""
+    def test_digest_by_id(self):
+        """Test GET /api/digests/{id} - get digest with articles"""
+        if not hasattr(self, 'test_digest_id'):
+            print("⚠️  Skipping digest by ID test - no digest ID available")
+            return True
+            
         success, response = self.run_test(
-            "Get Opinion Articles",
+            "Get Digest by ID",
             "GET",
-            "articles/opinions",
+            f"digests/{self.test_digest_id}",
             200,
-            ["id", "title", "excerpt", "content", "category", "author", "image_url", "published_at"]
+            expected_fields=["id", "edition_name", "digest_date", "articles"]
+        )
+        
+        if success and "articles" in response:
+            articles = response["articles"]
+            print(f"✅ Digest contains {len(articles)} articles")
+            
+            # Check for supporting articles and sources
+            for article in articles:
+                if "supporting_articles" in article:
+                    print(f"✅ Article has {len(article['supporting_articles'])} supporting articles")
+                if "sources" in article:
+                    print(f"✅ Article has {len(article['sources'])} sources")
+                    
+        return success
+
+    def test_articles_filter_by_category(self):
+        """Test GET /api/articles?category=U.S. - filter by category"""
+        success, response = self.run_test(
+            "Filter Articles by Category (U.S.)",
+            "GET",
+            "articles?category=U.S.",
+            200,
+            expected_fields=["id", "category", "headline", "summary", "supporting_articles", "sources"]
         )
         
         if success and isinstance(response, list):
-            print(f"✅ Opinion articles returned as list with {len(response)} articles")
-            if len(response) >= 3:
-                print(f"✅ Sufficient articles for opinions grid")
+            print(f"✅ Found {len(response)} U.S. articles")
+            
+            # Check that all articles are U.S. category
+            for article in response:
+                if article.get("category") != "U.S.":
+                    print(f"⚠️  Warning: Non-U.S. article found: {article.get('category')}")
+                    break
             else:
-                print(f"⚠️  Warning: Only {len(response)} opinion articles, may need more for grid")
+                print(f"✅ All articles are U.S. category")
+                
+            # Check for nested supporting articles and sources
+            for article in response:
+                if "supporting_articles" in article and isinstance(article["supporting_articles"], list):
+                    print(f"✅ Article has {len(article['supporting_articles'])} supporting articles nested")
+                if "sources" in article and isinstance(article["sources"], list):
+                    print(f"✅ Article has {len(article['sources'])} sources nested")
+                    
+        return success
+
+    def test_create_single_article(self):
+        """Test POST /api/articles - create single article"""
+        if not hasattr(self, 'test_digest_id'):
+            print("⚠️  Skipping create article test - no digest ID available")
+            return True
+            
+        article_data = {
+            "category": "Technology",
+            "rank": 1,
+            "headline": "Test Article for API Testing",
+            "summary": "This is a test article created during API testing",
+            "why_it_matters": "Testing is important for quality assurance",
+            "watch_next": "Monitor for any issues",
+            "importance_score": 0.8,
+            "is_political": False,
+            "curated_by": "API Tester",
+            "supporting_articles": [
+                {
+                    "headline": "Supporting Test Article",
+                    "summary": "Additional context for the main article",
+                    "context_type": "context",
+                    "source_name": "Test Source"
+                }
+            ],
+            "sources": [
+                {
+                    "source_name": "Test News Source",
+                    "source_url": "https://example.com/test",
+                    "source_type": "primary"
+                }
+            ]
+        }
+        
+        success, response = self.run_test(
+            "Create Single Article",
+            "POST",
+            f"articles?digest_id={self.test_digest_id}",
+            201,
+            data=article_data,
+            expected_fields=["id", "category", "headline", "supporting_articles", "sources"]
+        )
+        
+        if success:
+            print(f"✅ Article created successfully")
+            if "supporting_articles" in response and len(response["supporting_articles"]) > 0:
+                print(f"✅ Supporting articles created and nested")
+            if "sources" in response and len(response["sources"]) > 0:
+                print(f"✅ Sources created and nested")
+                
+        return success
+
+    def test_bulk_ingest(self):
+        """Test POST /api/articles/ingest - bulk ingest endpoint"""
+        bulk_data = {
+            "edition_name": "Test Edition",
+            "digest_date": "2026-01-30",
+            "recency_window_hours": 24,
+            "articles": [
+                {
+                    "category": "Technology",
+                    "rank": 1,
+                    "headline": "Bulk Ingest Test Article",
+                    "summary": "Testing bulk ingest functionality",
+                    "why_it_matters": "Bulk ingest is critical for AI agent integration",
+                    "importance_score": 0.9,
+                    "is_political": False,
+                    "curated_by": "Bulk Tester",
+                    "supporting_articles": [
+                        {
+                            "headline": "Supporting Article for Bulk Test",
+                            "summary": "Additional context",
+                            "context_type": "context",
+                            "source_name": "Bulk Test Source"
+                        }
+                    ],
+                    "sources": [
+                        {
+                            "source_name": "Bulk News Source",
+                            "source_url": "https://example.com/bulk",
+                            "source_type": "primary"
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        success, response = self.run_test(
+            "Bulk Ingest Articles",
+            "POST",
+            "articles/ingest",
+            200,
+            data=bulk_data,
+            expected_fields=["digest_id", "articles_created", "supporting_articles_created", "sources_created"]
+        )
+        
+        if success:
+            print(f"✅ Bulk ingest successful")
+            print(f"   Articles created: {response.get('articles_created', 0)}")
+            print(f"   Supporting articles created: {response.get('supporting_articles_created', 0)}")
+            print(f"   Sources created: {response.get('sources_created', 0)}")
                 
         return success
 
@@ -242,15 +352,20 @@ def main():
     # Test root endpoint
     tester.test_root_endpoint()
     
-    # Test categories
+    # Test categories (should return 9 categories)
     tester.test_categories()
     
+    # Test digest endpoints
+    tester.test_digests_list()
+    tester.test_digest_by_date()
+    tester.test_digest_by_id()
+    
     # Test article endpoints
-    tester.test_featured_article()
-    tester.test_spotlight_article()
-    tester.test_sidebar_articles()
-    tester.test_bottom_articles()
-    tester.test_opinion_articles()
+    tester.test_articles_filter_by_category()
+    tester.test_create_single_article()
+    
+    # Test bulk ingest
+    tester.test_bulk_ingest()
 
     # Print results
     print("\n" + "=" * 50)

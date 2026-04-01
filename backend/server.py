@@ -1,48 +1,48 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, and_, delete
+from sqlalchemy.orm import selectinload
 import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
-import random
+from datetime import datetime, timezone, date
+
+# Local imports
+from database import get_db, init_db, close_db
+from models import Digest, Article, SupportingArticle, ArticleSource
+from schemas import (
+    DigestCreate, DigestUpdate, DigestResponse, DigestSummary,
+    ArticleCreate, ArticleUpdate, ArticleResponse,
+    SupportingArticleCreate, SupportingArticleResponse,
+    ArticleSourceCreate, ArticleSourceResponse,
+    BulkIngestRequest, BulkIngestResponse,
+    VALID_CATEGORIES
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection (for legacy status checks)
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+mongo_client = AsyncIOMotorClient(mongo_url)
+mongo_db = mongo_client[os.environ.get('DB_NAME', 'news_ledger')]
 
-# Create the main app without a prefix
-app = FastAPI()
+# Create the main app
+app = FastAPI(title="News Ledger API", version="2.0.0")
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
-# Define Models
-class Article(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    title: str
-    excerpt: str
-    content: str
-    category: str
-    author: str
-    image_url: str
-    published_at: str
-    is_featured: bool = False
-    is_spotlight: bool = False
 
+# ============ Pydantic Models for Legacy ============
 class StatusCheck(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     client_name: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -50,292 +50,470 @@ class StatusCheck(BaseModel):
 class StatusCheckCreate(BaseModel):
     client_name: str
 
-# Mock News Data
-MOCK_ARTICLES = [
-    # U.S. Articles
-    {
-        "id": "1",
-        "title": "Your principles are living things",
-        "excerpt": "How else could they be nourished, except by the extinction of the corresponding mental images?",
-        "content": "Nearly a simple thing is alien to the man, ordered together in their places they together make up the very order of the universe. The wise man, self-sufficient as he is, still desires a friend (if only), for the purpose of practicing friendship.",
-        "category": "U.S.",
-        "author": "Marcus Aurelius",
-        "image_url": "https://images.unsplash.com/photo-1703244551357-233a550c11f5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 29, 2026",
-        "is_featured": True,
-        "is_spotlight": False
-    },
-    {
-        "id": "2",
-        "title": "You should take no action unwillingly",
-        "excerpt": "Selfishly, unsatisfied or with conflicting motives. Do not dress up your imagination except lively.",
-        "content": "A wise person should take no action unwillingly, selfishly, unsatisfied or with conflicting motives. Do not dress up your imagination except lively. The mind is everything; what you think, you become.",
-        "category": "U.S.",
-        "author": "Seneca",
-        "image_url": "https://images.unsplash.com/photo-1580196923348-cffc38b93d84?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 28, 2026",
-        "is_featured": False,
-        "is_spotlight": True
-    },
-    # World Articles
-    {
-        "id": "3",
-        "title": "National Gallery to reopen with exhibition on Pieter Brueghel",
-        "excerpt": "The exhibition will feature more than 10 paintings on display for the first time, highlighting the history of art famous faces.",
-        "content": "The National Gallery is set to reopen with a groundbreaking exhibition featuring the works of Pieter Brueghel. The exhibition will feature more than 10 paintings on display for the first time, highlighting the history of art's most famous faces, from George Bernard Shaw to Vivien Leigh, John Gielgud to Princess Margaret.",
-        "category": "World",
-        "author": "Ellie Barnes",
-        "image_url": "https://images.unsplash.com/photo-1622835276155-2681286a8321?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwdmludGFnZSUyMG5ld3N8ZW58MHx8fHwxNzc1MDgyMTgyfDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 27, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    {
-        "id": "4",
-        "title": "Five key Renaissance Paintings",
-        "excerpt": "A masterful collection of art that defined an era and continues to influence modern creativity.",
-        "content": "The Renaissance period produced some of the most influential artworks in human history. From Leonardo da Vinci's Mona Lisa to Michelangelo's Sistine Chapel ceiling, these masterpieces continue to inspire artists and art lovers worldwide.",
-        "category": "World",
-        "author": "Art Correspondent",
-        "image_url": "https://images.pexels.com/photos/16461387/pexels-photo-16461387.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "published_at": "January 26, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Local Articles
-    {
-        "id": "5",
-        "title": "Story Told by the Church Beadle",
-        "excerpt": "Frank Bigwinovski was innocently here this special sort of path in the normally absolute looking the same foregoing again.",
-        "content": "The church beadle shared an extraordinary tale that has captivated the local community. Frank Bigwinovski's story reveals the hidden depths of our neighborhood's rich history and the remarkable characters who have shaped it over generations.",
-        "category": "Local",
-        "author": "Local Reporter",
-        "image_url": "https://images.unsplash.com/photo-1703244549157-6cb7386abc68?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwzfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 25, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    {
-        "id": "6",
-        "title": "The Last Day before Christmas",
-        "excerpt": "A white, clear night came. The stars popped out. The Chapel/mass rose majestically in the sky to greet the good people.",
-        "content": "As the community gathered for the last day before Christmas, the atmosphere was filled with anticipation and joy. The white, clear night came with stars popping out across the sky, and the chapel rose majestically to greet the good people of the town.",
-        "category": "Local",
-        "author": "Community Editor",
-        "image_url": "https://images.pexels.com/photos/15935275/pexels-photo-15935275.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "published_at": "January 24, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Business Articles
-    {
-        "id": "7",
-        "title": "Market indicators show promising growth",
-        "excerpt": "Analysts predict continued economic expansion as key sectors demonstrate resilience in challenging times.",
-        "content": "Economic indicators are pointing towards sustained growth across multiple sectors. Analysts have expressed optimism about the market's trajectory, citing strong performance in technology and manufacturing as key drivers of the expansion.",
-        "category": "Business",
-        "author": "Financial Desk",
-        "image_url": "https://images.unsplash.com/photo-1628564120851-b76dfd932d2f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHw0fHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 23, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Technology Articles
-    {
-        "id": "8",
-        "title": "And what you dictated your heart to style (or use) is by no means between",
-        "excerpt": "A wise person should not seek more to get in real local house is much better.",
-        "content": "Technology continues to reshape how we live and work. The latest innovations in artificial intelligence and machine learning are creating unprecedented opportunities for businesses and individuals alike to transform their approaches to problem-solving.",
-        "category": "Technology",
-        "author": "Robert Woodcroft",
-        "image_url": "https://images.unsplash.com/photo-1759405185537-6972d439a261?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwyfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwdmludGFnZSUyMG5ld3N8ZW58MHx8fHwxNzc1MDgyMTgyfDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 22, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    {
-        "id": "9",
-        "title": "All dispropor-tionate you see, but it still alphaism do shrunk your style more it",
-        "excerpt": "If It seemed to be but for I had to out today's why any rules rules of answer.",
-        "content": "The digital transformation continues at an unprecedented pace. Companies worldwide are investing heavily in new technologies to stay competitive and meet the evolving demands of their customers in an increasingly connected world.",
-        "category": "Technology",
-        "author": "Bella Rosalie Wolf",
-        "image_url": "https://images.unsplash.com/photo-1713429901232-55af72e11af8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxjbGFzc2ljJTIwYmxhY2slMjBhbmQlMjB3aGl0ZSUyMHNwb3J0c3xlbnwwfHx8fDE3NzUwODIxOTR8MA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 21, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Entertainment Articles
-    {
-        "id": "10",
-        "title": "Noise and Thunder at the end of Kiev",
-        "excerpt": "Captain parallel in celebrating his son's wedding. Many people about to our and, home will she may like to drink.",
-        "content": "The entertainment world is buzzing with excitement as new productions premiere across the globe. Critics and audiences alike are praising the innovative approaches to storytelling that are redefining the industry.",
-        "category": "Entertainment",
-        "author": "Arts Critic",
-        "image_url": "https://images.unsplash.com/photo-1758405392922-569359b88a9b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHw0fHxjbGFzc2ljJTIwYmxhY2slMjBhbmQlMjB3aGl0ZSUyMHNwb3J0c3xlbnwwfHx8fDE3NzUwODIxOTR8MA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 20, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Sports Articles
-    {
-        "id": "11",
-        "title": "Championship finals draw record crowds",
-        "excerpt": "The athletic competition reached new heights as spectators gathered to witness historic performances.",
-        "content": "Sports enthusiasts from around the world gathered to witness what many are calling the most exciting championship finals in decades. Athletes pushed their limits, delivering performances that will be remembered for generations.",
-        "category": "Sports",
-        "author": "Sports Desk",
-        "image_url": "https://images.unsplash.com/photo-1758405392922-569359b88a9b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHw0fHxjbGFzc2ljJTIwYmxhY2slMjBhbmQlMjB3aGl0ZSUyMHNwb3J0c3xlbnwwfHx8fDE3NzUwODIxOTR8MA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 19, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Science Articles
-    {
-        "id": "12",
-        "title": "Consistently net your readiest impression - can't we sub-headed it one use",
-        "excerpt": "Scientific breakthroughs continue to reshape our understanding of the natural world.",
-        "content": "Researchers have made groundbreaking discoveries that promise to transform our understanding of the universe. These findings open new avenues for exploration and technological advancement that could benefit humanity for generations to come.",
-        "category": "Science",
-        "author": "Alistia Marcha",
-        "image_url": "https://images.unsplash.com/photo-1622835276155-2681286a8321?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTZ8MHwxfHNlYXJjaHwzfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwdmludGFnZSUyMG5ld3N8ZW58MHx8fHwxNzc1MDgyMTgyfDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 18, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Health Articles
-    {
-        "id": "13",
-        "title": "If you've got a formidable drive, that is constantly to our will cannot",
-        "excerpt": "Health experts share insights on maintaining wellness in modern times.",
-        "content": "Medical professionals are sharing new insights into maintaining optimal health in today's fast-paced world. Their recommendations emphasize the importance of balance, mindfulness, and preventive care in achieving long-term wellness.",
-        "category": "Health",
-        "author": "Joshua B. Markus",
-        "image_url": "https://images.unsplash.com/photo-1713429901232-55af72e11af8?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwyfHxjbGFzc2ljJTIwYmxhY2slMjBhbmQlMjB3aGl0ZSUyMHNwb3J0c3xlbnwwfHx8fDE3NzUwODIxOTR8MA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 17, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    # Additional Articles for variety
-    {
-        "id": "14",
-        "title": "Eduardo Halt breaks new ground in literary criticism",
-        "excerpt": "The acclaimed author presents a fresh perspective on classical literature interpretation.",
-        "content": "Eduardo Halt's latest work challenges conventional approaches to literary criticism, offering readers a new lens through which to examine classic texts. His methodology has sparked lively debate among scholars and enthusiasts alike.",
-        "category": "Entertainment",
-        "author": "Eduardo Halt",
-        "image_url": "https://images.pexels.com/photos/16461387/pexels-photo-16461387.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
-        "published_at": "January 16, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    {
-        "id": "15",
-        "title": "Lucie Antonio Santos shares wisdom on personal growth",
-        "excerpt": "The renowned philosopher discusses the path to self-improvement and inner peace.",
-        "content": "In an exclusive interview, Lucie Antonio Santos reflects on decades of philosophical inquiry and personal development. Her insights offer guidance for those seeking meaning and fulfillment in an increasingly complex world.",
-        "category": "Health",
-        "author": "Lucie Antonio Santos",
-        "image_url": "https://images.unsplash.com/photo-1580196923348-cffc38b93d84?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 15, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    },
-    {
-        "id": "16",
-        "title": "David Hughes explores the future of sustainable business",
-        "excerpt": "Industry leader outlines strategies for environmentally responsible commerce.",
-        "content": "David Hughes presents a compelling vision for the future of business that prioritizes environmental sustainability without sacrificing profitability. His framework offers practical steps for companies of all sizes to reduce their ecological footprint.",
-        "category": "Business",
-        "author": "David Hughes",
-        "image_url": "https://images.unsplash.com/photo-1703244549157-6cb7386abc68?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwzfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
-        "published_at": "January 14, 2026",
-        "is_featured": False,
-        "is_spotlight": False
-    }
-]
 
-CATEGORIES = ["U.S.", "World", "Local", "Business", "Technology", "Entertainment", "Sports", "Science", "Health"]
-
-# API Routes
+# ============ Root & Health ============
 @api_router.get("/")
 async def root():
-    return {"message": "News Ledger API"}
+    return {"message": "News Ledger API v2.0", "status": "healthy"}
 
-@api_router.get("/articles", response_model=List[Article])
-async def get_articles(category: Optional[str] = None):
-    """Get all articles, optionally filtered by category"""
-    articles = MOCK_ARTICLES
-    if category:
-        articles = [a for a in articles if a["category"] == category]
-    return [Article(**a) for a in articles]
-
-@api_router.get("/articles/featured", response_model=Article)
-async def get_featured_article():
-    """Get the main featured article"""
-    featured = next((a for a in MOCK_ARTICLES if a["is_featured"]), MOCK_ARTICLES[0])
-    return Article(**featured)
-
-@api_router.get("/articles/spotlight", response_model=Article)
-async def get_spotlight_article():
-    """Get the spotlight article"""
-    spotlight = next((a for a in MOCK_ARTICLES if a["is_spotlight"]), MOCK_ARTICLES[1])
-    return Article(**spotlight)
-
-@api_router.get("/articles/sidebar", response_model=List[Article])
-async def get_sidebar_articles():
-    """Get articles for the sidebar"""
-    sidebar_articles = [a for a in MOCK_ARTICLES if not a["is_featured"] and not a["is_spotlight"]][:5]
-    return [Article(**a) for a in sidebar_articles]
-
-@api_router.get("/articles/bottom", response_model=List[Article])
-async def get_bottom_articles():
-    """Get articles for the bottom section"""
-    bottom_articles = [a for a in MOCK_ARTICLES if not a["is_featured"] and not a["is_spotlight"]][3:7]
-    return [Article(**a) for a in bottom_articles]
-
-@api_router.get("/articles/opinions", response_model=List[Article])
-async def get_opinion_articles():
-    """Get opinion articles for the grid"""
-    opinion_articles = MOCK_ARTICLES[7:10]
-    return [Article(**a) for a in opinion_articles]
-
-@api_router.get("/articles/{article_id}", response_model=Article)
-async def get_article(article_id: str):
-    """Get a specific article by ID"""
-    article = next((a for a in MOCK_ARTICLES if a["id"] == article_id), None)
-    if not article:
-        return {"error": "Article not found"}
-    return Article(**article)
 
 @api_router.get("/categories")
 async def get_categories():
     """Get all available categories"""
-    return {"categories": CATEGORIES}
+    return {"categories": VALID_CATEGORIES}
 
+
+# ============ Digest Endpoints ============
+@api_router.post("/digests", response_model=DigestResponse)
+async def create_digest(digest_data: DigestCreate, db: AsyncSession = Depends(get_db)):
+    """Create a new digest (daily edition)"""
+    # Check if digest already exists for this date
+    existing = await db.execute(
+        select(Digest).where(
+            and_(
+                Digest.digest_date == digest_data.digest_date,
+                Digest.edition_name == digest_data.edition_name
+            )
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"Digest for {digest_data.digest_date} already exists")
+    
+    # Create digest
+    digest = Digest(
+        edition_name=digest_data.edition_name,
+        digest_date=digest_data.digest_date,
+        recency_window_hours=digest_data.recency_window_hours,
+        status=digest_data.status.value
+    )
+    db.add(digest)
+    
+    # Add articles if provided
+    for article_data in digest_data.articles:
+        article = Article(
+            digest_id=digest.id,
+            **article_data.model_dump(exclude={'supporting_articles', 'sources'})
+        )
+        db.add(article)
+        
+        # Add supporting articles
+        for sa_data in article_data.supporting_articles or []:
+            sa = SupportingArticle(parent_article_id=article.id, **sa_data.model_dump())
+            db.add(sa)
+        
+        # Add sources
+        for source_data in article_data.sources or []:
+            source = ArticleSource(article_id=article.id, **source_data.model_dump())
+            db.add(source)
+    
+    await db.commit()
+    await db.refresh(digest)
+    
+    # Reload with relationships
+    result = await db.execute(
+        select(Digest)
+        .options(
+            selectinload(Digest.articles)
+            .selectinload(Article.supporting_articles),
+            selectinload(Digest.articles)
+            .selectinload(Article.sources)
+        )
+        .where(Digest.id == digest.id)
+    )
+    return result.scalar_one()
+
+
+@api_router.get("/digests", response_model=List[DigestSummary])
+async def list_digests(
+    status: Optional[str] = None,
+    limit: int = Query(default=10, le=50),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all digests with summary info"""
+    query = select(Digest).order_by(Digest.digest_date.desc()).limit(limit)
+    if status:
+        query = query.where(Digest.status == status)
+    
+    result = await db.execute(query)
+    digests = result.scalars().all()
+    
+    # Get article counts
+    summaries = []
+    for digest in digests:
+        count_result = await db.execute(
+            select(func.count(Article.id)).where(Article.digest_id == digest.id)
+        )
+        article_count = count_result.scalar()
+        summaries.append(DigestSummary(
+            id=digest.id,
+            edition_name=digest.edition_name,
+            digest_date=digest.digest_date,
+            status=digest.status,
+            article_count=article_count,
+            created_at=digest.created_at
+        ))
+    
+    return summaries
+
+
+@api_router.get("/digests/{digest_id}", response_model=DigestResponse)
+async def get_digest(digest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Get a specific digest with all articles"""
+    result = await db.execute(
+        select(Digest)
+        .options(
+            selectinload(Digest.articles)
+            .selectinload(Article.supporting_articles),
+            selectinload(Digest.articles)
+            .selectinload(Article.sources)
+        )
+        .where(Digest.id == digest_id)
+    )
+    digest = result.scalar_one_or_none()
+    if not digest:
+        raise HTTPException(status_code=404, detail="Digest not found")
+    return digest
+
+
+@api_router.get("/digests/date/{digest_date}", response_model=DigestResponse)
+async def get_digest_by_date(digest_date: date, db: AsyncSession = Depends(get_db)):
+    """Get digest for a specific date"""
+    result = await db.execute(
+        select(Digest)
+        .options(
+            selectinload(Digest.articles)
+            .selectinload(Article.supporting_articles),
+            selectinload(Digest.articles)
+            .selectinload(Article.sources)
+        )
+        .where(Digest.digest_date == digest_date)
+    )
+    digest = result.scalar_one_or_none()
+    if not digest:
+        raise HTTPException(status_code=404, detail=f"No digest found for {digest_date}")
+    return digest
+
+
+@api_router.put("/digests/{digest_id}", response_model=DigestResponse)
+async def update_digest(digest_id: uuid.UUID, digest_data: DigestUpdate, db: AsyncSession = Depends(get_db)):
+    """Update digest metadata"""
+    result = await db.execute(select(Digest).where(Digest.id == digest_id))
+    digest = result.scalar_one_or_none()
+    if not digest:
+        raise HTTPException(status_code=404, detail="Digest not found")
+    
+    update_data = digest_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if value is not None:
+            setattr(digest, key, value.value if hasattr(value, 'value') else value)
+    
+    await db.commit()
+    await db.refresh(digest)
+    return digest
+
+
+@api_router.delete("/digests/{digest_id}")
+async def delete_digest(digest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a digest and all its articles (cascade)"""
+    result = await db.execute(select(Digest).where(Digest.id == digest_id))
+    digest = result.scalar_one_or_none()
+    if not digest:
+        raise HTTPException(status_code=404, detail="Digest not found")
+    
+    await db.delete(digest)
+    await db.commit()
+    return {"message": "Digest deleted", "id": str(digest_id)}
+
+
+# ============ Bulk Ingest Endpoint ============
+@api_router.post("/articles/ingest", response_model=BulkIngestResponse)
+async def bulk_ingest(data: BulkIngestRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Bulk ingest a full digest - main endpoint for your agent
+    Creates or replaces digest for the given date
+    """
+    # Check for existing digest and delete if exists (replace mode)
+    existing = await db.execute(
+        select(Digest).where(
+            and_(
+                Digest.digest_date == data.digest_date,
+                Digest.edition_name == data.edition_name
+            )
+        )
+    )
+    existing_digest = existing.scalar_one_or_none()
+    if existing_digest:
+        await db.delete(existing_digest)
+        await db.flush()
+    
+    # Validate article counts per category (max 5)
+    category_counts = {}
+    for article in data.articles:
+        if article.category not in VALID_CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Invalid category: {article.category}")
+        category_counts[article.category] = category_counts.get(article.category, 0) + 1
+        if category_counts[article.category] > 5:
+            raise HTTPException(status_code=400, detail=f"Max 5 articles per category. {article.category} has {category_counts[article.category]}")
+    
+    # Create new digest
+    digest = Digest(
+        edition_name=data.edition_name,
+        digest_date=data.digest_date,
+        recency_window_hours=data.recency_window_hours,
+        status="published"
+    )
+    db.add(digest)
+    await db.flush()  # Get digest.id
+    
+    articles_created = 0
+    supporting_created = 0
+    sources_created = 0
+    
+    for article_data in data.articles:
+        article = Article(
+            digest_id=digest.id,
+            category=article_data.category,
+            rank=article_data.rank,
+            story_cluster_id=article_data.story_cluster_id,
+            headline=article_data.headline,
+            summary=article_data.summary,
+            why_it_matters=article_data.why_it_matters,
+            watch_next=article_data.watch_next,
+            political_synthesis=article_data.political_synthesis,
+            importance_score=article_data.importance_score,
+            is_political=article_data.is_political,
+            image_url=article_data.image_url,
+            curated_by=article_data.curated_by
+        )
+        db.add(article)
+        await db.flush()  # Get article.id
+        articles_created += 1
+        
+        # Add supporting articles (max 3)
+        for sa_data in (article_data.supporting_articles or [])[:3]:
+            sa = SupportingArticle(
+                parent_article_id=article.id,
+                headline=sa_data.headline,
+                summary=sa_data.summary,
+                context_type=sa_data.context_type.value,
+                source_name=sa_data.source_name,
+                source_url=sa_data.source_url,
+                image_url=sa_data.image_url
+            )
+            db.add(sa)
+            supporting_created += 1
+        
+        # Add sources
+        for source_data in (article_data.sources or []):
+            source = ArticleSource(
+                article_id=article.id,
+                source_name=source_data.source_name,
+                source_url=source_data.source_url,
+                source_type=source_data.source_type.value
+            )
+            db.add(source)
+            sources_created += 1
+    
+    await db.commit()
+    
+    return BulkIngestResponse(
+        digest_id=digest.id,
+        edition_name=digest.edition_name,
+        digest_date=digest.digest_date,
+        articles_created=articles_created,
+        supporting_articles_created=supporting_created,
+        sources_created=sources_created
+    )
+
+
+# ============ Article Endpoints ============
+@api_router.get("/articles", response_model=List[ArticleResponse])
+async def get_articles(
+    category: Optional[str] = None,
+    digest_date: Optional[date] = None,
+    digest_id: Optional[uuid.UUID] = None,
+    is_political: Optional[bool] = None,
+    limit: int = Query(default=5, le=50),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get articles with optional filters"""
+    query = select(Article).options(
+        selectinload(Article.supporting_articles),
+        selectinload(Article.sources)
+    ).order_by(Article.rank)
+    
+    if digest_id:
+        query = query.where(Article.digest_id == digest_id)
+    elif digest_date:
+        # Join with digest to filter by date
+        query = query.join(Digest).where(Digest.digest_date == digest_date)
+    
+    if category:
+        if category not in VALID_CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+        query = query.where(Article.category == category)
+    
+    if is_political is not None:
+        query = query.where(Article.is_political == is_political)
+    
+    query = query.limit(limit)
+    
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@api_router.post("/articles", response_model=ArticleResponse)
+async def create_article(
+    article_data: ArticleCreate,
+    digest_id: uuid.UUID = Query(..., description="Digest ID to add article to"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a single article within a digest"""
+    # Verify digest exists
+    digest_result = await db.execute(select(Digest).where(Digest.id == digest_id))
+    if not digest_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Digest not found")
+    
+    # Check category article count
+    count_result = await db.execute(
+        select(func.count(Article.id)).where(
+            and_(Article.digest_id == digest_id, Article.category == article_data.category)
+        )
+    )
+    if count_result.scalar() >= 5:
+        raise HTTPException(status_code=400, detail=f"Max 5 articles per category in digest")
+    
+    article = Article(
+        digest_id=digest_id,
+        **article_data.model_dump(exclude={'supporting_articles', 'sources'})
+    )
+    db.add(article)
+    await db.flush()
+    
+    for sa_data in article_data.supporting_articles or []:
+        sa = SupportingArticle(parent_article_id=article.id, **sa_data.model_dump())
+        db.add(sa)
+    
+    for source_data in article_data.sources or []:
+        source = ArticleSource(article_id=article.id, **source_data.model_dump())
+        db.add(source)
+    
+    await db.commit()
+    
+    # Reload with relationships
+    result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.supporting_articles), selectinload(Article.sources))
+        .where(Article.id == article.id)
+    )
+    return result.scalar_one()
+
+
+@api_router.get("/articles/{article_id}", response_model=ArticleResponse)
+async def get_article(article_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Get a specific article with supporting articles and sources"""
+    result = await db.execute(
+        select(Article)
+        .options(selectinload(Article.supporting_articles), selectinload(Article.sources))
+        .where(Article.id == article_id)
+    )
+    article = result.scalar_one_or_none()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    return article
+
+
+@api_router.put("/articles/{article_id}", response_model=ArticleResponse)
+async def update_article(article_id: uuid.UUID, article_data: ArticleUpdate, db: AsyncSession = Depends(get_db)):
+    """Update an article"""
+    result = await db.execute(select(Article).where(Article.id == article_id))
+    article = result.scalar_one_or_none()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    update_data = article_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if value is not None:
+            setattr(article, key, value)
+    
+    await db.commit()
+    await db.refresh(article)
+    return article
+
+
+@api_router.delete("/articles/{article_id}")
+async def delete_article(article_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Delete an article (cascades to supporting articles and sources)"""
+    result = await db.execute(select(Article).where(Article.id == article_id))
+    article = result.scalar_one_or_none()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    await db.delete(article)
+    await db.commit()
+    return {"message": "Article deleted", "id": str(article_id)}
+
+
+# ============ Supporting Article Endpoints ============
+@api_router.post("/articles/{article_id}/supporting", response_model=SupportingArticleResponse)
+async def add_supporting_article(
+    article_id: uuid.UUID,
+    sa_data: SupportingArticleCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Add a supporting article to a main article (max 3)"""
+    # Verify parent article exists
+    article_result = await db.execute(select(Article).where(Article.id == article_id))
+    if not article_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Parent article not found")
+    
+    # Check supporting article count
+    count_result = await db.execute(
+        select(func.count(SupportingArticle.id)).where(SupportingArticle.parent_article_id == article_id)
+    )
+    if count_result.scalar() >= 3:
+        raise HTTPException(status_code=400, detail="Max 3 supporting articles per main article")
+    
+    sa = SupportingArticle(parent_article_id=article_id, **sa_data.model_dump())
+    db.add(sa)
+    await db.commit()
+    await db.refresh(sa)
+    return sa
+
+
+@api_router.delete("/supporting/{supporting_id}")
+async def delete_supporting_article(supporting_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a supporting article"""
+    result = await db.execute(select(SupportingArticle).where(SupportingArticle.id == supporting_id))
+    sa = result.scalar_one_or_none()
+    if not sa:
+        raise HTTPException(status_code=404, detail="Supporting article not found")
+    
+    await db.delete(sa)
+    await db.commit()
+    return {"message": "Supporting article deleted", "id": str(supporting_id)}
+
+
+# ============ Legacy Status Endpoints (MongoDB) ============
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.model_dump()
     status_obj = StatusCheck(**status_dict)
-    
     doc = status_obj.model_dump()
     doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
+    _ = await mongo_db.status_checks.insert_one(doc)
     return status_obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
+    status_checks = await mongo_db.status_checks.find({}, {"_id": 0}).to_list(1000)
     for check in status_checks:
         if isinstance(check['timestamp'], str):
             check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
     return status_checks
 
-# Include the router in the main app
+
+# ============ App Setup ============
 app.include_router(api_router)
 
 app.add_middleware(
@@ -346,13 +524,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
+
+@app.on_event("startup")
+async def startup():
+    """Initialize database on startup"""
+    try:
+        await init_db()
+        logger.info("PostgreSQL database initialized")
+    except Exception as e:
+        logger.warning(f"PostgreSQL not available, some features disabled: {e}")
+
+
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
+async def shutdown():
+    """Close connections on shutdown"""
+    mongo_client.close()
+    await close_db()
