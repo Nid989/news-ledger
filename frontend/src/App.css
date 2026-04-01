@@ -1,34 +1,108 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* News Ledger App Styles */
+
+/* Main container */
+.news-ledger {
+  min-height: 100vh;
+  background-color: #F4F1EA;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Masthead */
+.masthead-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Article typography */
+.article-headline {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
-.App-link {
-    color: #61dafb;
+.article-excerpt {
+  font-family: 'Merriweather', Georgia, serif;
+  font-weight: 300;
+  line-height: 1.6;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.article-author {
+  font-family: 'Oswald', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
+}
+
+/* Section labels */
+.section-label {
+  font-family: 'Oswald', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 0.7rem;
+  color: #4A4A4A;
+}
+
+/* Category navigation */
+.category-nav-item {
+  font-family: 'Merriweather', Georgia, serif;
+  font-size: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(17, 17, 17, 0.15);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.category-nav-item:hover {
+  font-style: italic;
+}
+
+.category-nav-item.active {
+  font-weight: 700;
+  font-style: italic;
+}
+
+/* Image styling */
+.news-image {
+  filter: grayscale(100%) contrast(1.25) sepia(0.2);
+  object-fit: cover;
+}
+
+/* Borders */
+.border-newspaper {
+  border-color: #111111;
+}
+
+/* Bottom ticker */
+.news-ticker {
+  background-color: #111111;
+  color: #F4F1EA;
+  overflow: hidden;
+}
+
+.ticker-content {
+  display: flex;
+  white-space: nowrap;
+}
+
+/* Dividers */
+.section-divider {
+  border-top: 2px solid rgba(17, 17, 17, 0.5);
+}
+
+.column-divider {
+  border-right: 1px solid rgba(17, 17, 17, 0.3);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .masthead-title {
+    font-size: 2.5rem;
+  }
+  
+  .column-divider {
+    border-right: none;
+    border-bottom: 1px solid rgba(17, 17, 17, 0.3);
+  }
 }
