@@ -283,6 +283,7 @@ async def bulk_ingest(data: BulkIngestRequest, db: AsyncSession = Depends(get_db
             importance_score=article_data.importance_score,
             is_political=article_data.is_political,
             image_url=article_data.image_url,
+            article_url=article_data.article_url,
             curated_by=article_data.curated_by
         )
         db.add(article)

@@ -89,6 +89,7 @@ class Article(Base):
     importance_score = Column(Float, default=0.0)
     is_political = Column(Boolean, default=False)
     image_url = Column(Text, nullable=True)
+    article_url = Column(Text, nullable=True)  # Link to original article source
     curated_by = Column(String(255), nullable=True)
     
     # Timestamps

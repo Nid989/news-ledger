@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import "@/App.css";
 import axios from "axios";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ExternalLink } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -19,11 +20,13 @@ const MOCK_ARTICLES = {
       summary: "How else could they be nourished, except by the extinction of the corresponding mental images?",
       why_it_matters: "Nearly a simple thing is alien to the man, ordered together in their places they together make up the very order of the universe.",
       curated_by: "Marcus Aurelius",
-      image_url: "https://images.unsplash.com/photo-1703244551357-233a550c11f5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwyfHx2aW50YWdlJTIwY2l0eSUyMHN0cmVldCUyMGJsYWNrJTIwYW5kJTIwd2hpdGV8ZW58MHx8fHwxNzc1MDgyMTk0fDA&ixlib=rb-4.1.0&q=85",
+      image_url: "https://images.unsplash.com/photo-1703244551357-233a550c11f5?w=800",
       rank: 1,
+      category: "U.S.",
       supporting_articles: [
         { headline: "The wise man, self-sufficient as he is, still desires a friend", summary: "For the purpose of practicing friendship.", source_name: "Lucius Antonio Santos", context_type: "context" }
-      ]
+      ],
+      sources: []
     }
   ],
   "World": [
@@ -33,9 +36,11 @@ const MOCK_ARTICLES = {
       summary: "The exhibition will feature more than 10 paintings on display for the first time.",
       why_it_matters: "Highlighting the history of art's famous faces, from George Bernard Shaw to Vivien Leigh.",
       curated_by: "Ellie Barnes",
-      image_url: "https://images.unsplash.com/photo-1622835276155-2681286a8321",
+      image_url: "https://images.unsplash.com/photo-1622835276155-2681286a8321?w=800",
       rank: 1,
-      supporting_articles: []
+      category: "World",
+      supporting_articles: [],
+      sources: []
     }
   ]
 };
@@ -47,6 +52,7 @@ function App() {
   const [allArticles, setAllArticles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [usingMockData, setUsingMockData] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState(null); // Currently viewed article
 
   // Get current date formatted
   const getCurrentDate = () => {
@@ -60,19 +66,15 @@ function App() {
       try {
         setLoading(true);
         
-        // Try to get the most recent digest
         const digestsResponse = await axios.get(`${API}/digests?limit=1`);
         
         if (digestsResponse.data && digestsResponse.data.length > 0) {
           const latestDigest = digestsResponse.data[0];
-          
-          // Fetch full digest with articles
           const fullDigestResponse = await axios.get(`${API}/digests/${latestDigest.id}`);
           setCurrentDigest(fullDigestResponse.data);
           setAllArticles(fullDigestResponse.data.articles || []);
           setUsingMockData(false);
         } else {
-          // No digests exist, use mock data
           console.log("No digests found, using mock data");
           setUsingMockData(true);
           setAllArticles([]);
@@ -99,12 +101,14 @@ function App() {
         .sort((a, b) => a.rank - b.rank);
       setArticles(filtered);
     }
+    // Reset selected article when category changes
+    setSelectedArticle(null);
   }, [selectedCategory, allArticles, usingMockData]);
 
-  // Get featured article (rank 1 of selected category)
-  const featuredArticle = articles.find(a => a.rank === 1) || articles[0];
+  // Get the article to display in featured position
+  const featuredArticle = selectedArticle || articles.find(a => a.rank === 1) || articles[0];
   
-  // Get other articles for the category
+  // Get other articles for the category (excluding the one being displayed)
   const otherArticles = articles.filter(a => a.id !== featuredArticle?.id);
   
   // Get articles from other categories for sidebar
@@ -116,6 +120,45 @@ function App() {
   const bottomArticles = allArticles
     .filter(a => a.category !== selectedCategory)
     .slice(0, 4);
+
+  // Handle clicking on an article to view it
+  const handleArticleClick = (article) => {
+    if (article.category !== selectedCategory) {
+      // Switch to that category first
+      setSelectedCategory(article.category);
+    }
+    setSelectedArticle(article);
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Get primary source URL for an article
+  const getPrimarySourceUrl = (article) => {
+    if (!article?.sources || article.sources.length === 0) return null;
+    const primary = article.sources.find(s => s.source_type === 'primary');
+    return primary?.source_url || article.sources[0]?.source_url;
+  };
+
+  // Headline component that links to source if available
+  const HeadlineLink = ({ article, children, className = "" }) => {
+    const sourceUrl = getPrimarySourceUrl(article);
+    
+    if (sourceUrl) {
+      return (
+        <a 
+          href={sourceUrl} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className={`${className} hover:underline cursor-pointer group`}
+        >
+          {children}
+          <ExternalLink className="inline-block w-4 h-4 ml-2 opacity-0 group-hover:opacity-50 transition-opacity" />
+        </a>
+      );
+    }
+    
+    return <span className={className}>{children}</span>;
+  };
 
   if (loading) {
     return (
@@ -129,7 +172,10 @@ function App() {
     <div className="min-h-screen bg-[#F4F1EA] pb-12" data-testid="news-ledger-app">
       {/* Masthead Header */}
       <header className="text-center py-6 border-b-4 border-t-8 border-[#111111] mb-0" data-testid="masthead">
-        <h1 className="masthead-title text-5xl sm:text-6xl md:text-7xl lg:text-8xl text-[#111111] mb-2">
+        <h1 
+          className="masthead-title text-5xl sm:text-6xl md:text-7xl lg:text-8xl text-[#111111] mb-2 cursor-pointer"
+          onClick={() => { setSelectedCategory("U.S."); setSelectedArticle(null); }}
+        >
           News Ledger
         </h1>
         <p className="font-label text-xs tracking-widest text-[#4A4A4A] uppercase">
@@ -150,7 +196,7 @@ function App() {
               {CATEGORIES.map((category) => (
                 <button
                   key={category}
-                  onClick={() => setSelectedCategory(category)}
+                  onClick={() => { setSelectedCategory(category); setSelectedArticle(null); }}
                   className={`category-nav-item text-left ${selectedCategory === category ? 'active' : ''}`}
                   data-testid={`category-${category.toLowerCase().replace(/\./g, '').replace(/\s+/g, '-')}`}
                 >
@@ -179,9 +225,11 @@ function App() {
             {/* Featured Article */}
             {featuredArticle ? (
               <article className="mb-8 pb-8 border-b border-[#111111]/30" data-testid="featured-article">
-                <p className="section-label mb-3">{selectedCategory.toUpperCase()}</p>
+                <p className="section-label mb-3">{featuredArticle.category?.toUpperCase() || selectedCategory.toUpperCase()}</p>
                 <h2 className="article-headline text-4xl md:text-5xl lg:text-6xl mb-4">
-                  {featuredArticle.headline}
+                  <HeadlineLink article={featuredArticle} className="text-[#111111]">
+                    {featuredArticle.headline}
+                  </HeadlineLink>
                 </h2>
                 <p className="article-excerpt text-lg text-[#4A4A4A] mb-4">
                   {featuredArticle.summary}
@@ -225,6 +273,33 @@ function App() {
                   </div>
                 </div>
 
+                {/* Sources */}
+                {featuredArticle.sources && featuredArticle.sources.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-[#111111]/10">
+                    <p className="section-label mb-2">SOURCES</p>
+                    <div className="flex flex-wrap gap-2">
+                      {featuredArticle.sources.map((source, idx) => (
+                        <span key={idx} className="text-xs">
+                          {source.source_url ? (
+                            <a 
+                              href={source.source_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-[#4A4A4A] hover:text-[#111111] hover:underline flex items-center gap-1"
+                            >
+                              {source.source_name}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <span className="text-[#4A4A4A]">{source.source_name}</span>
+                          )}
+                          {idx < featuredArticle.sources.length - 1 && <span className="mx-2 text-[#4A4A4A]">•</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Supporting Articles */}
                 {featuredArticle.supporting_articles && featuredArticle.supporting_articles.length > 0 && (
                   <div className="mt-6 pt-4 border-t border-[#111111]/20">
@@ -232,11 +307,23 @@ function App() {
                     <div className="space-y-3">
                       {featuredArticle.supporting_articles.map((sa, idx) => (
                         <div key={idx} className="flex items-start gap-3">
-                          <span className="text-xs font-label uppercase text-[#4A4A4A] bg-[#111111]/5 px-2 py-1">
+                          <span className="text-xs font-label uppercase text-[#4A4A4A] bg-[#111111]/5 px-2 py-1 flex-shrink-0">
                             {sa.context_type === 'deep_dive' ? 'ANALYSIS' : sa.context_type === 'alternative' ? 'ALT VIEW' : 'CONTEXT'}
                           </span>
                           <div>
-                            <p className="font-body text-sm font-bold">{sa.headline}</p>
+                            {sa.source_url ? (
+                              <a 
+                                href={sa.source_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="font-body text-sm font-bold hover:underline flex items-center gap-1"
+                              >
+                                {sa.headline}
+                                <ExternalLink className="w-3 h-3 opacity-50" />
+                              </a>
+                            ) : (
+                              <p className="font-body text-sm font-bold">{sa.headline}</p>
+                            )}
                             {sa.summary && <p className="font-body text-xs text-[#4A4A4A] mt-1">{sa.summary}</p>}
                             {sa.source_name && <p className="article-author text-[10px] mt-1">— {sa.source_name}</p>}
                           </div>
@@ -263,13 +350,18 @@ function App() {
               </div>
             )}
 
-            {/* Other articles in category */}
+            {/* Other articles in category - CLICKABLE */}
             {otherArticles.length > 0 && (
               <div className="mb-8" data-testid="category-articles">
                 <p className="section-label mb-4">MORE IN {selectedCategory.toUpperCase()}</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {otherArticles.map((article) => (
-                    <div key={article.id} className="pb-4 border-b border-[#111111]/20 article-card">
+                    <div 
+                      key={article.id} 
+                      className="pb-4 border-b border-[#111111]/20 article-card cursor-pointer hover:bg-[#111111]/5 transition-colors p-2 -m-2"
+                      onClick={() => handleArticleClick(article)}
+                      data-testid={`article-card-${article.rank}`}
+                    >
                       {article.image_url && (
                         <img 
                           src={article.image_url} 
@@ -277,9 +369,14 @@ function App() {
                           className="news-image w-full aspect-video mb-3"
                         />
                       )}
-                      <h3 className="font-headline text-lg font-bold leading-tight mb-2">
-                        {article.headline}
-                      </h3>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-headline text-2xl font-black text-[#111111]/20">
+                          {String(article.rank).padStart(2, '0')}
+                        </span>
+                        <h3 className="font-headline text-lg font-bold leading-tight">
+                          {article.headline}
+                        </h3>
+                      </div>
                       <p className="font-body text-sm text-[#4A4A4A] mb-2">
                         {article.summary}
                       </p>
@@ -295,23 +392,33 @@ function App() {
               </div>
             )}
 
-            {/* Issue Number */}
+            {/* Issue Number - Shows current article rank */}
             <div className="text-center py-6 border-y border-[#111111]/30 my-8">
-              <p className="font-headline text-6xl md:text-7xl font-bold">NO. 01</p>
+              <p className="font-headline text-6xl md:text-7xl font-bold">
+                NO. {String(featuredArticle?.rank || 1).padStart(2, '0')}
+              </p>
+              <p className="font-label text-xs tracking-widest text-[#4A4A4A] mt-2">
+                {selectedCategory.toUpperCase()} • RANK {featuredArticle?.rank || 1} OF {articles.length}
+              </p>
             </div>
           </main>
 
-          {/* Right Sidebar - Featured Articles */}
+          {/* Right Sidebar - Featured Articles - CLICKABLE */}
           <aside className="col-span-12 md:col-span-3 py-8 pl-0 md:pl-6 md:border-l border-[#111111]/30" data-testid="featured-sidebar">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-headline text-xl font-bold">Featured Articles</h3>
               <button className="text-xs font-label tracking-widest hover:underline">See All</button>
             </div>
 
-            {/* Sidebar Article List */}
+            {/* Sidebar Article List - CLICKABLE */}
             <div className="space-y-4 mb-8">
               {(sidebarArticles.length > 0 ? sidebarArticles : Object.values(MOCK_ARTICLES).flat()).slice(0, 5).map((article, idx) => (
-                <div key={article.id || idx} className="flex gap-3 pb-4 border-b border-[#111111]/20 article-card">
+                <div 
+                  key={article.id || idx} 
+                  className="flex gap-3 pb-4 border-b border-[#111111]/20 article-card cursor-pointer hover:bg-[#111111]/5 transition-colors p-2 -m-2"
+                  onClick={() => handleArticleClick(article)}
+                  data-testid={`sidebar-article-${idx}`}
+                >
                   {article.image_url && (
                     <img 
                       src={article.image_url} 
@@ -320,6 +427,7 @@ function App() {
                     />
                   )}
                   <div>
+                    <p className="text-[10px] font-label uppercase text-[#4A4A4A] mb-1">{article.category}</p>
                     <h4 className="font-headline text-sm font-bold leading-tight mb-1">
                       {article.headline?.slice(0, 50)}...
                     </h4>
@@ -329,9 +437,14 @@ function App() {
               ))}
             </div>
 
-            {/* Large Featured Article */}
+            {/* Large Featured Article - CLICKABLE */}
             {sidebarArticles[0] && (
-              <article className="mb-6" data-testid="sidebar-featured">
+              <article 
+                className="mb-6 cursor-pointer hover:bg-[#111111]/5 transition-colors p-3 -m-3"
+                onClick={() => handleArticleClick(sidebarArticles[0])}
+                data-testid="sidebar-featured"
+              >
+                <p className="text-xs font-label uppercase text-[#4A4A4A] mb-2">{sidebarArticles[0].category}</p>
                 <h3 className="font-headline text-2xl font-bold leading-tight mb-2">
                   {sidebarArticles[0].headline}
                 </h3>
@@ -339,32 +452,41 @@ function App() {
                 <p className="font-body text-sm text-[#4A4A4A] mb-4">
                   {sidebarArticles[0].summary}
                 </p>
-                <button className="text-xs font-label tracking-widest hover:underline flex items-center gap-1">
-                  <span>&#8592;</span> See More
-                </button>
+                <span className="text-xs font-label tracking-widest hover:underline flex items-center gap-1">
+                  <span>&#8594;</span> Read Full Story
+                </span>
               </article>
             )}
 
-            {/* Bottom Sidebar Image */}
+            {/* Bottom Sidebar Image - CLICKABLE */}
             {sidebarArticles[1] && sidebarArticles[1].image_url && (
-              <div className="mt-6">
+              <div 
+                className="mt-6 cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => handleArticleClick(sidebarArticles[1])}
+              >
                 <img 
                   src={sidebarArticles[1].image_url}
                   alt={sidebarArticles[1].headline}
                   className="news-image w-full aspect-[4/3]"
                 />
-                <h4 className="font-headline text-xl font-bold mt-3">{sidebarArticles[1].headline}</h4>
+                <p className="text-xs font-label uppercase text-[#4A4A4A] mt-2">{sidebarArticles[1].category}</p>
+                <h4 className="font-headline text-xl font-bold mt-1">{sidebarArticles[1].headline}</h4>
               </div>
             )}
           </aside>
         </div>
 
-        {/* Bottom Section - Article Cards */}
+        {/* Bottom Section - Article Cards - CLICKABLE */}
         {bottomArticles.length > 0 && (
           <section className="border-t-2 border-[#111111]/50 pt-8 mt-8" data-testid="bottom-articles">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {bottomArticles.map((article) => (
-                <article key={article.id} className="article-card" data-testid={`bottom-article-${article.id}`}>
+                <article 
+                  key={article.id} 
+                  className="article-card cursor-pointer hover:bg-[#111111]/5 transition-colors p-3 -m-3"
+                  onClick={() => handleArticleClick(article)}
+                  data-testid={`bottom-article-${article.id}`}
+                >
                   {article.image_url && (
                     <img 
                       src={article.image_url} 
@@ -399,7 +521,6 @@ function App() {
               <span className="mx-8">&#9679; Your AI agent can populate this dashboard</span>
             </>
           )}
-          {/* Duplicate for seamless loop */}
           {allArticles.slice(0, 6).map((article, idx) => (
             <span key={`dup-${idx}`} className="mx-8">&#9679; {article.headline?.slice(0, 40)}...</span>
           ))}

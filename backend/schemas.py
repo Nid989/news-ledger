@@ -86,6 +86,7 @@ class ArticleBase(BaseModel):
     importance_score: float = 0.0
     is_political: bool = False
     image_url: Optional[str] = None
+    article_url: Optional[str] = None  # Link to original article source
     curated_by: Optional[str] = None
 
 
@@ -106,6 +107,7 @@ class ArticleUpdate(BaseModel):
     importance_score: Optional[float] = None
     is_political: Optional[bool] = None
     image_url: Optional[str] = None
+    article_url: Optional[str] = None
     curated_by: Optional[str] = None
 
 
